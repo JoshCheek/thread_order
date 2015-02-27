@@ -1,6 +1,6 @@
 require 'thread_order'
 
-RSpec.describe ThreadOrderSupport do
+RSpec.describe ThreadOrder do
   let(:order) { described_class.new }
   after { order.apocalypse! }
 

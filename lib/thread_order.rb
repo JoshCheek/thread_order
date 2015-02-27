@@ -1,4 +1,4 @@
-class ThreadOrderSupport
+class ThreadOrder
   def initialize
     @bodies  = {}
     @threads = []
