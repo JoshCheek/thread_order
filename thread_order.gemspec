@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'thread_order'
-  s.version     = '1.0.0'
+  s.version     = '0.1.0'
   s.licenses    = ['MIT']
   s.summary     = "Test helper for ordering threaded code (does not depend on stdlib)"
   s.description = "Test helper for ordering threaded code (does not depend on stdlib)."
