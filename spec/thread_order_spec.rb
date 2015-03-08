@@ -102,9 +102,8 @@ RSpec.describe ThreadOrder do
     expect(thread_names).to eq [:a, nil]
   end
 
-  xit 'is implemented without depending on the stdlib' do
+  it 'is implemented without depending on the stdlib' do
     loaded_filenames = $LOADED_FEATURES.map { |filepath| File.basename filepath }
-    pending 'fucking fails :('
     expect(loaded_filenames).to_not include 'monitor.rb'
     expect(loaded_filenames).to_not include 'thread.rb'
     expect(loaded_filenames).to_not include 'thread.bundle'

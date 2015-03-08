@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# do this stuff in a tmp dir
+cd "$(dirname "$0")/.."
+project_root=`pwd`
+mkdir -p tmp
+cd tmp
+
+# get the bundler source
+get_gem() {
+  name="$1"
+  url="$2"
+
+  if test -d "$name"
+  then
+    echo "Skipping download of $name"
+    return
+  else
+    echo "Downloading $name"
+  fi
+
+  mkdir "$name" &&
+  cd "$name" &&
+  curl -L "$url" > "$name".gem &&
+  tar -xf "$name".gem &&
+  gunzip data.tar.gz &&
+  tar -xf data.tar &&
+  cd ..
+}
+
+get_gem "rspec"              "https://rubygems.org/downloads/rspec-3.2.0.gem" &&
+get_gem "rspec-core"         "https://rubygems.org/downloads/rspec-core-3.2.1.gem" &&
+get_gem "rspec-support"      "https://rubygems.org/downloads/rspec-support-3.2.2.gem" &&
+get_gem "rspec-expectations" "https://rubygems.org/downloads/rspec-expectations-3.2.0.gem" &&
+get_gem "rspec-mocks"        "https://rubygems.org/downloads/rspec-mocks-3.2.1.gem" &&
+get_gem "diff-lcs"           "https://rubygems.org/downloads/diff-lcs-1.2.5.gem"
+
+
+# run specs
+cd $project_root
+
+export PATH="$project_root/tmp/rspec-core/exe:$PATH"
+
+opts=""
+opts=" -I $project_root/tmp/diff-lcs/lib $opts"
+opts=" -I $project_root/tmp/rspec/lib $opts"
+opts=" -I $project_root/tmp/rspec-core/lib $opts"
+opts=" -I $project_root/tmp/rspec-expectations/lib $opts"
+opts=" -I $project_root/tmp/rspec-mocks/lib $opts"
+opts=" -I $project_root/tmp/rspec-support/lib $opts"
+
+if `ruby -e "exit RUBY_VERSION != '1.8.7'"`
+then
+  opts="--disable-gems $opts"
+fi
+
+ruby $opts -S rspec

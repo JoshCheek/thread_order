@@ -1,6 +1,5 @@
 language: ruby
-bundler_args: "--binstubs --standalone --without documentation"
-script: bundle exec rspec
+script: spec/run
 rvm:
   - 1.8.7
   - 1.9.2
@@ -14,9 +13,6 @@ rvm:
   - jruby
   - jruby-head
   - rbx
-
-
-script: "script/run_build"
 matrix:
   include:
     - rvm: jruby
