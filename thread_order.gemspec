@@ -1,4 +1,4 @@
-require_relative 'lib/thread_order/version'
+require File.expand_path('../lib/thread_order/version', __FILE__)
 
 Gem::Specification.new do |s|
   s.name        = 'thread_order'
