@@ -6,7 +6,7 @@ project_root=`pwd`
 mkdir -p tmp
 cd tmp
 
-# get the bundler source
+# this is basically a shitty version of `gem unpack`
 get_gem() {
   name="$1"
   url="$2"
@@ -28,6 +28,7 @@ get_gem() {
   cd ..
 }
 
+# download dependencies
 get_gem "rspec"              "https://rubygems.org/downloads/rspec-3.2.0.gem" &&
 get_gem "rspec-core"         "https://rubygems.org/downloads/rspec-core-3.2.1.gem" &&
 get_gem "rspec-support"      "https://rubygems.org/downloads/rspec-support-3.2.2.gem" &&
