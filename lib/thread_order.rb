@@ -1,3 +1,5 @@
+require 'thread_order/mutex'
+
 class ThreadOrder
   def initialize
     @bodies  = {}
