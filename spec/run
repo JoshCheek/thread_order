@@ -34,11 +34,18 @@ get_gem "rspec-core"         "https://rubygems.org/downloads/rspec-core-3.2.1.ge
 get_gem "rspec-support"      "https://rubygems.org/downloads/rspec-support-3.2.2.gem" &&
 get_gem "rspec-expectations" "https://rubygems.org/downloads/rspec-expectations-3.2.0.gem" &&
 get_gem "rspec-mocks"        "https://rubygems.org/downloads/rspec-mocks-3.2.1.gem" &&
-get_gem "diff-lcs"           "https://rubygems.org/downloads/diff-lcs-1.2.5.gem"
+get_gem "diff-lcs"           "https://rubygems.org/downloads/diff-lcs-1.2.5.gem" || exit 1
 
 
 # run specs
-cd $project_root
+# as the paths might have spaces in them, which need to be quoted,
+# but the args themselves are space delimited,
+# so some spaces in here need to be quoted, but some don't.
+#
+# Currently it's not a problem, but still would like to do it right.
+# So, is there a way to essentially get it to act like "$@" rather than "$*" and $*
+# https://s3.amazonaws.com/josh.cheek/images/scratch/bash-arg-quoting.png
+cd "$project_root"
 
 export PATH="$project_root/tmp/rspec-core/exe:$PATH"
 
