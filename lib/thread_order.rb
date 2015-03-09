@@ -4,7 +4,7 @@ class ThreadOrder
   def initialize
     @bodies  = {}
     @threads = []
-    @queue   = [] # we may not have thread stdlib required, so may not have Queue class
+    @queue   = [] # Queue is in stdlib, but half the purpose of this lib is to avoid such deps, so using an array in a Mutex
     @mutex   = Mutex.new
     @worker  = Thread.new { loop { work } }
     @worker.abort_on_exception = true
@@ -22,15 +22,12 @@ class ThreadOrder
     parent       = Thread.current
     child        = nil
     resume_event = extract_resume_event! options
-    resume_if    = lambda do |event|
-      return unless event == sync { resume_event }
-      parent.wakeup
-    end
+    resume_if    = lambda { |event| event == sync { resume_event } && parent.wakeup }
 
     enqueue do
       child = Thread.new do
         enqueue { @threads << child }
-        sync { resume_event } == :sleep &&
+        :sleep == sync { resume_event } and
           enqueue { watch_for_sleep(child) { resume_if.call :sleep } }
         begin
           enqueue { resume_if.call :run }
@@ -53,7 +50,7 @@ class ThreadOrder
     enqueue do
       @threads.each(&thread_method)
       @queue.clear
-      @worker.kill
+      @worker.kill # seppuku!
     end
     @worker.join
   end
