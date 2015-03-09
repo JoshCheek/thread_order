@@ -38,28 +38,21 @@ get_gem "diff-lcs"           "https://rubygems.org/downloads/diff-lcs-1.2.5.gem"
 
 
 # run specs
-# as the paths might have spaces in them, which need to be quoted,
-# but the args themselves are space delimited,
-# so some spaces in here need to be quoted, but some don't.
-#
-# Currently it's not a problem, but still would like to do it right.
-# So, is there a way to essentially get it to act like "$@" rather than "$*" and $*
-# https://s3.amazonaws.com/josh.cheek/images/scratch/bash-arg-quoting.png
 cd "$project_root"
 
 export PATH="$project_root/tmp/rspec-core/exe:$PATH"
 
-opts=""
-opts=" -I $project_root/tmp/diff-lcs/lib $opts"
-opts=" -I $project_root/tmp/rspec/lib $opts"
-opts=" -I $project_root/tmp/rspec-core/lib $opts"
-opts=" -I $project_root/tmp/rspec-expectations/lib $opts"
-opts=" -I $project_root/tmp/rspec-mocks/lib $opts"
-opts=" -I $project_root/tmp/rspec-support/lib $opts"
+opts=()
+opts+=(-I "$project_root/tmp/diff-lcs/lib")
+opts+=(-I "$project_root/tmp/rspec/lib")
+opts+=(-I "$project_root/tmp/rspec-core/lib")
+opts+=(-I "$project_root/tmp/rspec-expectations/lib")
+opts+=(-I "$project_root/tmp/rspec-mocks/lib")
+opts+=(-I "$project_root/tmp/rspec-support/lib")
 
 if `ruby -e "exit RUBY_VERSION != '1.8.7'"`
 then
-  opts="--disable-gems $opts"
+  opts+=(--disable-gems)
 fi
 
-ruby $opts -S rspec
+ruby "${opts[@]}" -S rspec
