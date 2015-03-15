@@ -50,14 +50,10 @@ RSpec.describe ThreadOrder do
       raised_exception = nil
       order.declare(:t1) do
         Thread.current.abort_on_exception = false # don't blow up the main thread
-        begin
-          order.pass_to :t2, resume_on: :sleep
-        rescue ThreadOrder::CannotResume => e
-          raised_exception = e
-        end
+        order.pass_to :t2, :resume_on => :sleep rescue raised_exception = $!
       end
       order.declare(:t2) { :exits_instead_of_sleeping }
-      order.pass_to :t1, resume_on: :exit
+      order.pass_to :t1, :resume_on => :exit
       expect(raised_exception.message).to include "t2 exited"
     end
   end
