@@ -1,6 +1,9 @@
 require 'thread_order/mutex'
 
 class ThreadOrder
+  Error        = Class.new RuntimeError
+  CannotResume = Class.new Error
+
   def initialize
     @bodies  = {}
     @threads = []
@@ -22,15 +25,14 @@ class ThreadOrder
     parent       = Thread.current
     child        = nil
     resume_event = extract_resume_event! options
-    resume_if    = lambda { |event| event == sync { resume_event } && parent.wakeup }
+    resume_if    = lambda { |event| event == resume_event && parent.wakeup }
 
     enqueue do
       child = Thread.new do
         enqueue { @threads << child }
-        :sleep == sync { resume_event } and
-          enqueue { watch_for_sleep(child) { resume_if.call :sleep } }
+        :sleep == resume_event && enqueue { watch_for_sleep(child, parent) }
         begin
-          enqueue { resume_if.call :run }
+          resume_if.call :run
           Thread.current[:thread_order_name] = name
           @bodies.fetch(name).call
         rescue Exception => error
@@ -80,13 +82,16 @@ class ThreadOrder
     resume_on
   end
 
-  def watch_for_sleep(thread, &cb)
-    if thread.status == false || thread.status == nil
-      # noop, dead threads dream no dreams
+  def watch_for_sleep(thread, to_wake)
+    if thread.status == false
+      to_wake.raise CannotResume.new("#{thread[:thread_order_name]} exited instead of sleeping")
+    elsif thread.status == nil
+      # the thread errored -- this will raise an error in the main thread
+      # so we will simply exit
     elsif thread.status == 'sleep'
-      cb.call
+      to_wake.wakeup
     else
-      enqueue { watch_for_sleep(thread, &cb) }
+      enqueue { watch_for_sleep(thread, to_wake) }
     end
   end
 end

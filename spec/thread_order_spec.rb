@@ -45,6 +45,31 @@ RSpec.describe ThreadOrder do
       order.declare(:t) { Thread.exit }
       order.pass_to :t, :resume_on => :exit
     end
+
+    it 'blows up if it is waiting on another thread to sleep and that thread exits instead' do
+      raised_exception = nil
+      order.declare(:t1) do
+        Thread.current.abort_on_exception = false # don't blow up the main thread
+        begin
+          order.pass_to :t2, resume_on: :sleep
+        rescue ThreadOrder::CannotResume => e
+          raised_exception = e
+        end
+      end
+      order.declare(:t2) { :exits_instead_of_sleeping }
+      order.pass_to :t1, resume_on: :exit
+      expect(raised_exception).to be
+    end
+  end
+
+  describe 'error types' do
+    it 'has a toplevel lib error: ThreadOrder::Error which is a RuntimeError' do
+      expect(ThreadOrder::Error.superclass).to eq RuntimeError
+    end
+
+    specify 'all behavioural errors it raises inherit from ThreadOrder::Error' do
+      expect(ThreadOrder::CannotResume.superclass).to eq ThreadOrder::Error
+    end
   end
 
   describe 'errors in children' do
