@@ -170,6 +170,36 @@ RSpec.describe ThreadOrder do
     end
   end
 
+  describe 'synchronization' do
+    it 'allows any thread to enqueue work for the worker' do
+      seen = []
+
+      order.declare :enqueueing do |&resume|
+        order.enqueue do
+          order.enqueue { seen << 2 }
+          order.enqueue { seen << 3 }
+          order.enqueue { resume.call }
+          seen << 1
+        end
+      end
+
+      order.pass_to :enqueueing
+      expect(seen).to eq [1, 2, 3]
+    end
+
+    it 'exposes the size of the queue' do
+      order.declare :count do |&resume|
+        order.enqueue do
+          initial_count = 0
+          100.times { order.enqueue { } }
+          expect(order.queue_size).to eq initial_count + 100
+          resume.call
+        end
+      end
+      order.pass_to :count
+    end
+  end
+
   describe 'apocalypse!' do
     it 'kills threads that are still alive' do
       order.declare(:t) { sleep }
@@ -197,8 +227,18 @@ RSpec.describe ThreadOrder do
     end
 
     it 'does not enqueue events after the apocalypse' do
-      1000.times { order.apocalypse! }
-      expect(order.instance_variable_get(:@queue)).to be_empty
+      # enqueues before
+      expect(order.queue_size).to eq 0
+      order.enqueue do
+        order.enqueue { }
+        expect(order.queue_size).to be > 0 # from 202, and possibly apocalypse
+      end
+
+      order.apocalypse!
+
+      # but not after
+      order.enqueue { raise "Should not be called!" }
+      expect(order.queue_size).to eq 0
     end
 
     it 'kills the worker' do

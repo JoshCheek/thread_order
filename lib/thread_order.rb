@@ -25,7 +25,7 @@ class ThreadOrder
     Thread.current[:thread_order_name]
   end
 
-  def pass_to(name, options)
+  def pass_to(name, options={})
     child        = nil
     parent       = Thread.current
     resume_event = extract_resume_event! options
@@ -38,7 +38,7 @@ class ThreadOrder
         :sleep == resume_event && enqueue { wake_on_sleep child, parent }
         :run   == resume_event && parent.wakeup
         begin
-          sync { @bodies.fetch(name) }.call
+          sync { @bodies.fetch(name) }.call { parent.wakeup }
         rescue Exception => error
           enqueue { parent.raise error }
           raise
@@ -65,14 +65,18 @@ class ThreadOrder
     @worker.join
   end
 
+  def enqueue(&block)
+    sync { @queue << block if @worker.alive? }
+  end
+
+  def queue_size
+    sync { @queue.size }
+  end
+
   private
 
   def sync(&block)
     @mutex.synchronize(&block)
-  end
-
-  def enqueue(&block)
-    sync { @queue << block if @worker.alive? }
   end
 
   def work
@@ -85,7 +89,7 @@ class ThreadOrder
     resume_on = options.delete :resume_on
     options.any? &&
       raise(ArgumentError, "Unknown options: #{options.inspect}")
-    resume_on && ![:run, :exit, :sleep].include?(resume_on) and
+    resume_on && ![:run, :exit, :sleep, nil].include?(resume_on) and
       raise(ArgumentError, "Unknown status: #{resume_on.inspect}")
     resume_on
   end
