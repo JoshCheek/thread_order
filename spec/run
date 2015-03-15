@@ -55,4 +55,4 @@ then
   opts+=(--disable-gems)
 fi
 
-ruby "${opts[@]}" -S rspec
+ruby "${opts[@]}" -S rspec --colour --fail-fast --format documentation
