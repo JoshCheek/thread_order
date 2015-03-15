@@ -95,23 +95,20 @@ RSpec.describe ThreadOrder do
     end
 
     specify 'are raised in the parent' do
-      order.declare(:err) { raise Exception, 'to the rules' }
+      order.declare(:err) { |parent|
+        parent.wakeup
+        order.wait_until { parent.status == 'run' }
+        raise Exception, 'to the rules'
+      }
       expect {
-        order.pass_to :err, :resume_on => :run
+        order.pass_to :err
         loop { :noop }
       }.to raise_error Exception, 'to the rules'
     end
 
     specify 'even if the parent is asleep' do
-      parent = Thread.current
-      order.declare(:err) {
-        :noop until parent.status == 'sleep'
-        raise 'the roof'
-      }
-      expect {
-        order.pass_to :err, :resume_on => :run
-        sleep
-      }.to raise_error RuntimeError, 'the roof'
+      order.declare(:err) { raise 'the roof' }
+      expect { order.pass_to :err }.to raise_error RuntimeError, 'the roof'
     end
   end
 
@@ -188,7 +185,7 @@ RSpec.describe ThreadOrder do
   end
 
   describe 'synchronization' do
-    it 'allows any thread to enqueue work for the worker' do
+    it 'allows any thread to enqueue work' do
       seen = []
 
       order.declare :enqueueing do |parent|
@@ -246,12 +243,6 @@ RSpec.describe ThreadOrder do
       order.apocalypse!
       thread = Thread.current
       order.enqueue { thread.raise "Should not happen" }
-    end
-
-    it 'kills the worker' do
-      expect(order.instance_variable_get(:@worker).status).to_not eq false
-      order.apocalypse!
-      expect(order.instance_variable_get(:@worker).status).to eq false
     end
   end
 end

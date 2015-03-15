@@ -4,6 +4,66 @@ class ThreadOrder
   Error        = Class.new RuntimeError
   CannotResume = Class.new Error
 
+  class ResumeThread
+    def initialize(thread, resume_event)
+      self.thread       = thread
+      self.resume_event = resume_event
+      self.resumed      = false
+    end
+
+    def run?
+      :run == resume_event
+    end
+
+    def sleep?
+      :sleep == resume_event
+    end
+
+    def exit?
+      :exit == resume_event
+    end
+
+    def resumed?
+      resumed
+    end
+
+    def watch(to_watch, enqueue)
+      return if resumed?    # no op, job was already done
+      return resume if run? # calling this method implies to_watch is running
+
+      case to_watch.status
+      when 'sleep'
+        sleep? && resume
+      when nil
+        # raise the error from the child in in the parent
+        begin
+          to_watch.value
+        rescue Exception => e
+          thread.raise e
+        end
+      when false
+        if exit?
+          resume
+        elsif sleep?
+          message = "#{to_watch[:thread_order_name]} exited instead of sleeping"
+          thread.raise CannotResume.new(message)
+        end
+      end
+
+      resumed? || enqueue.call { watch to_watch, enqueue }
+    end
+
+    private
+
+    attr_accessor :thread, :resume_event, :resumed
+
+    def resume
+      return if resumed?
+      self.resumed = true
+      thread.wakeup
+    end
+  end
+
   # Note that this must tbe initialized in a threadsafe environment
   # Otherwise, syncing may occur before the mutex is set
   def initialize
@@ -13,6 +73,7 @@ class ThreadOrder
     @queue   = [] # Queue is in stdlib, but half the purpose of this lib is to avoid such deps, so using an array in a Mutex
     @worker  = Thread.new do
       Thread.current.abort_on_exception = true
+      Thread.current[:thread_order_name] = :internal_worker
       loop { work } # work until killed
     end
   end
@@ -26,27 +87,21 @@ class ThreadOrder
   end
 
   def pass_to(name, options={})
-    child        = nil
-    parent       = Thread.current
-    resume_event = extract_resume_event! options
+    child  = nil
+    parent = Thread.current
+    resume = ResumeThread.new parent, extract_resume_event!(options)
 
     enqueue do
       Thread.new do
         child = Thread.current
         Thread.current[:thread_order_name] = name
-        enqueue { @threads << child }
+        body = sync {
+          @threads << child
+          @bodies.fetch(name)
+        }
         wait_until { parent.stop? }
-        :run == resume_event && parent.wakeup
-        begin
-          body = sync { @bodies.fetch(name) }
-          :sleep == resume_event && enqueue { wake_on_sleep child, parent }
-          body.call parent
-        rescue Exception => error
-          enqueue { parent.raise error }
-          raise
-        ensure
-          :exit == resume_event && enqueue { parent.wakeup }
-        end
+        resume.watch child, method(:enqueue)
+        body.call parent
       end
     end
 
@@ -75,7 +130,11 @@ class ThreadOrder
     return if condition.call
     thread = Thread.current
     wake_when_true = lambda do
-      (thread.stop? && condition.call) ? thread.wakeup : enqueue(&wake_when_true)
+      if thread.stop? && condition.call
+        thread.wakeup
+      else
+        enqueue(&wake_when_true)
+      end
     end
     enqueue(&wake_when_true)
     sleep
@@ -100,18 +159,5 @@ class ThreadOrder
     resume_on && ![:run, :exit, :sleep, nil].include?(resume_on) and
       raise(ArgumentError, "Unknown status: #{resume_on.inspect}")
     resume_on
-  end
-
-  def wake_on_sleep(to_watch, to_wake)
-    if to_watch.status == false
-      to_wake.raise CannotResume.new("#{to_watch[:thread_order_name]} exited instead of sleeping")
-    elsif to_watch.status == nil
-      # to_watch errored -- this will raise an error in the main thread
-      # so we will simply exit
-    elsif to_watch.status == 'sleep'
-      to_wake.wakeup
-    else
-      enqueue { wake_on_sleep to_watch, to_wake }
-    end
   end
 end
