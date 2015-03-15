@@ -27,7 +27,8 @@ class ThreadOrder
     resume_event = extract_resume_event! options
 
     enqueue do
-      child = Thread.new do
+      Thread.new do
+        child = Thread.current
         enqueue { @threads << child }
         :sleep == resume_event && enqueue { wake_on_sleep child, parent }
         begin
