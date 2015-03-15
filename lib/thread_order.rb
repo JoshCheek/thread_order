@@ -33,10 +33,10 @@ class ThreadOrder
     enqueue do
       Thread.new do
         child = Thread.current
+        Thread.current[:thread_order_name] = name
         enqueue { @threads << child }
         :sleep == resume_event && enqueue { wake_on_sleep child, parent }
         :run   == resume_event && parent.wakeup
-        Thread.current[:thread_order_name] = name
         begin
           sync { @bodies.fetch(name) }.call
         rescue Exception => error
@@ -50,6 +50,10 @@ class ThreadOrder
 
     sleep
     child
+  end
+
+  def join_all
+    sync { @threads }.each { |th| th.join }
   end
 
   def apocalypse!(thread_method=:kill)

@@ -148,4 +148,25 @@ RSpec.describe ThreadOrder do
         to raise_error(ArgumentError, /bad_key/)
     end
   end
+
+  describe 'join_all' do
+    it 'joins with all the child threads' do
+      parent   = Thread.current
+      children = []
+
+      order.declare(:t1) do
+        order.pass_to :t2, :resume_on => :run
+        children << Thread.current
+      end
+
+      order.declare(:t2) do
+        children << Thread.current
+      end
+
+      order.pass_to :t1, :resume_on => :run
+      order.join_all
+      statuses = children.map { |th| th.status }
+      expect(statuses).to eq [false, false] # none are alive
+    end
+  end
 end

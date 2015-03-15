@@ -49,7 +49,7 @@ RSpec.describe MyQueue do
       :main
     end
 
-    order.apocalypse! :join # wait for all its threads to finish (often unnecessary)
+    order.join_all # concurrent_enqueue may still be asleep
     expect(queue.array).to eq [:main, :concurrent]
   end
 end
