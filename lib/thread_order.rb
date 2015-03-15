@@ -4,17 +4,21 @@ class ThreadOrder
   Error        = Class.new RuntimeError
   CannotResume = Class.new Error
 
+  # Note that this must tbe initialized in a threadsafe environment
+  # Otherwise, syncing may occur before the mutex is set
   def initialize
+    @mutex   = Mutex.new
     @bodies  = {}
     @threads = []
     @queue   = [] # Queue is in stdlib, but half the purpose of this lib is to avoid such deps, so using an array in a Mutex
-    @mutex   = Mutex.new
-    @worker  = Thread.new { loop { work } }
-    @worker.abort_on_exception = true
+    @worker  = Thread.new do
+      Thread.current.abort_on_exception = true
+      loop { work } # work until killed
+    end
   end
 
   def declare(name, &block)
-    @bodies[name] = block
+    sync { @bodies[name] = block }
   end
 
   def current
@@ -22,8 +26,8 @@ class ThreadOrder
   end
 
   def pass_to(name, options)
-    parent       = Thread.current
     child        = nil
+    parent       = Thread.current
     resume_event = extract_resume_event! options
 
     enqueue do
@@ -31,10 +35,10 @@ class ThreadOrder
         child = Thread.current
         enqueue { @threads << child }
         :sleep == resume_event && enqueue { wake_on_sleep child, parent }
+        :run   == resume_event && parent.wakeup
+        Thread.current[:thread_order_name] = name
         begin
-          :run == resume_event && parent.wakeup
-          Thread.current[:thread_order_name] = name
-          @bodies.fetch(name).call
+          sync { @bodies.fetch(name) }.call
         rescue Exception => error
           enqueue { parent.raise error }
           raise
