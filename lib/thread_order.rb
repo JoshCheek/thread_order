@@ -25,21 +25,20 @@ class ThreadOrder
     parent       = Thread.current
     child        = nil
     resume_event = extract_resume_event! options
-    resume_if    = lambda { |event| event == resume_event && parent.wakeup }
 
     enqueue do
       child = Thread.new do
         enqueue { @threads << child }
-        :sleep == resume_event && enqueue { watch_for_sleep(child, parent) }
+        :sleep == resume_event && enqueue { wake_on_sleep child, parent }
         begin
-          resume_if.call :run
+          :run == resume_event && parent.wakeup
           Thread.current[:thread_order_name] = name
           @bodies.fetch(name).call
         rescue Exception => error
           enqueue { parent.raise error }
           raise
         ensure
-          enqueue { resume_if.call :exit }
+          :exit == resume_event && enqueue { parent.wakeup }
         end
       end
     end
@@ -82,16 +81,16 @@ class ThreadOrder
     resume_on
   end
 
-  def watch_for_sleep(thread, to_wake)
-    if thread.status == false
-      to_wake.raise CannotResume.new("#{thread[:thread_order_name]} exited instead of sleeping")
-    elsif thread.status == nil
-      # the thread errored -- this will raise an error in the main thread
+  def wake_on_sleep(to_watch, to_wake)
+    if to_watch.status == false
+      to_wake.raise CannotResume.new("#{to_watch[:thread_order_name]} exited instead of sleeping")
+    elsif to_watch.status == nil
+      # to_watch errored -- this will raise an error in the main thread
       # so we will simply exit
-    elsif thread.status == 'sleep'
+    elsif to_watch.status == 'sleep'
       to_wake.wakeup
     else
-      enqueue { watch_for_sleep(thread, to_wake) }
+      enqueue { wake_on_sleep to_watch, to_wake }
     end
   end
 end

@@ -58,7 +58,7 @@ RSpec.describe ThreadOrder do
       end
       order.declare(:t2) { :exits_instead_of_sleeping }
       order.pass_to :t1, resume_on: :exit
-      expect(raised_exception).to be
+      expect(raised_exception.message).to include "t2 exited"
     end
   end
 
