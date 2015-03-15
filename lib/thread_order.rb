@@ -38,7 +38,7 @@ class ThreadOrder
         :sleep == resume_event && enqueue { wake_on_sleep child, parent }
         :run   == resume_event && parent.wakeup
         begin
-          sync { @bodies.fetch(name) }.call { parent.wakeup }
+          sync { @bodies.fetch(name) }.call parent
         rescue Exception => error
           enqueue { parent.raise error }
           raise

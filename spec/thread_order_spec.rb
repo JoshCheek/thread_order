@@ -46,6 +46,23 @@ RSpec.describe ThreadOrder do
       order.pass_to :t, :resume_on => :exit
     end
 
+    it 'passes the parent to the thread' do
+      parent = nil
+      order.declare(:t) { |p| parent = p }
+      order.pass_to :t, :resume_on => :exit
+      expect(parent).to eq Thread.current
+    end
+
+    it 'sleeps until woken if it does not provide a :resume_on key' do
+      order.declare(:t) { |parent|
+        order.enqueue {
+          expect(parent.status).to eq 'sleep'
+          parent.wakeup
+        }
+      }
+      order.pass_to :t
+    end
+
     it 'blows up if it is waiting on another thread to sleep and that thread exits instead' do
       raised_exception = nil
       order.declare(:t1) do
@@ -174,11 +191,11 @@ RSpec.describe ThreadOrder do
     it 'allows any thread to enqueue work for the worker' do
       seen = []
 
-      order.declare :enqueueing do |&resume|
+      order.declare :enqueueing do |parent|
         order.enqueue do
           order.enqueue { seen << 2 }
           order.enqueue { seen << 3 }
-          order.enqueue { resume.call }
+          order.enqueue { parent.wakeup }
           seen << 1
         end
       end
@@ -188,12 +205,12 @@ RSpec.describe ThreadOrder do
     end
 
     it 'exposes the size of the queue' do
-      order.declare :count do |&resume|
+      order.declare :count do |parent|
         order.enqueue do
           initial_count = 0
           100.times { order.enqueue { } }
           expect(order.queue_size).to eq initial_count + 100
-          resume.call
+          parent.wakeup
         end
       end
       order.pass_to :count
