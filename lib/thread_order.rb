@@ -35,10 +35,12 @@ class ThreadOrder
         child = Thread.current
         Thread.current[:thread_order_name] = name
         enqueue { @threads << child }
-        :sleep == resume_event && enqueue { wake_on_sleep child, parent }
-        :run   == resume_event && parent.wakeup
+        wait_until { parent.stop? }
+        :run == resume_event && parent.wakeup
         begin
-          sync { @bodies.fetch(name) }.call parent
+          body = sync { @bodies.fetch(name) }
+          :sleep == resume_event && enqueue { wake_on_sleep child, parent }
+          body.call parent
         rescue Exception => error
           enqueue { parent.raise error }
           raise
@@ -71,6 +73,20 @@ class ThreadOrder
 
   def queue_size
     sync { @queue.size }
+  end
+
+  def wait_until(&condition)
+    return if condition.call
+    thread = Thread.current
+    wake_when_true = lambda do
+      if condition.call
+        thread.wakeup
+      else
+        enqueue(&wake_when_true)
+      end
+    end
+    enqueue(&wake_when_true)
+    sleep
   end
 
   private

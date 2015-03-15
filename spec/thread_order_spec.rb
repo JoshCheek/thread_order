@@ -215,6 +215,17 @@ RSpec.describe ThreadOrder do
       end
       order.pass_to :count
     end
+
+    it 'allows a thread to put itself to sleep until some condition is met' do
+      i = 0
+      increment = lambda do
+        i += 1
+        order.enqueue(&increment)
+      end
+      increment.call
+      order.wait_until { i > 100_000 }
+      expect(i).to be > 100_000
+    end
   end
 
   describe 'apocalypse!' do
