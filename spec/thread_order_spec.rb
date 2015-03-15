@@ -204,18 +204,6 @@ RSpec.describe ThreadOrder do
       expect(seen).to eq [1, 2, 3]
     end
 
-    it 'exposes the size of the queue' do
-      order.declare :count do |parent|
-        order.enqueue do
-          initial_count = 0
-          100.times { order.enqueue { } }
-          expect(order.queue_size).to eq initial_count + 100
-          parent.wakeup
-        end
-      end
-      order.pass_to :count
-    end
-
     it 'allows a thread to put itself to sleep until some condition is met' do
       i = 0
       increment = lambda do
@@ -223,8 +211,8 @@ RSpec.describe ThreadOrder do
         order.enqueue(&increment)
       end
       increment.call
-      order.wait_until { i > 100_000 }
-      expect(i).to be > 100_000
+      order.wait_until { i > 20_000 } # 100k is too slow on 1.8.7, but 10k is too fast on 2.2.0
+      expect(i).to be > 20_000
     end
   end
 
@@ -255,18 +243,9 @@ RSpec.describe ThreadOrder do
     end
 
     it 'does not enqueue events after the apocalypse' do
-      # enqueues before
-      expect(order.queue_size).to eq 0
-      order.enqueue do
-        order.enqueue { }
-        expect(order.queue_size).to be > 0 # from 202, and possibly apocalypse
-      end
-
       order.apocalypse!
-
-      # but not after
-      order.enqueue { raise "Should not be called!" }
-      expect(order.queue_size).to eq 0
+      thread = Thread.current
+      order.enqueue { thread.raise "Should not happen" }
     end
 
     it 'kills the worker' do

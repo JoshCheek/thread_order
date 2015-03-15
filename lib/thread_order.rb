@@ -71,19 +71,11 @@ class ThreadOrder
     sync { @queue << block if @worker.alive? }
   end
 
-  def queue_size
-    sync { @queue.size }
-  end
-
   def wait_until(&condition)
     return if condition.call
     thread = Thread.current
     wake_when_true = lambda do
-      if condition.call
-        thread.wakeup
-      else
-        enqueue(&wake_when_true)
-      end
+      (thread.stop? && condition.call) ? thread.wakeup : enqueue(&wake_when_true)
     end
     enqueue(&wake_when_true)
     sleep
