@@ -169,4 +169,42 @@ RSpec.describe ThreadOrder do
       expect(statuses).to eq [false, false] # none are alive
     end
   end
+
+  describe 'apocalypse!' do
+    it 'kills threads that are still alive' do
+      order.declare(:t) { sleep }
+      child = order.pass_to :t, :resume_on => :sleep
+      expect(child).to receive(:kill).and_call_original
+      expect(child).to_not receive(:join)
+      order.apocalypse!
+    end
+
+    it 'can be overridden to call a different method than kill' do
+      # for some reason, the mock calling original join doesn't work
+      order.declare(:t) { sleep }
+      child = order.pass_to :t, :resume_on => :run
+      expect(child).to_not receive(:kill)
+      joiner = Thread.new { order.apocalypse! :join }
+      :noop until joiner.status == 'sleep'
+      child.wakeup
+      joiner.join
+    end
+
+    it 'can call apocalypse! any number of times without harm' do
+      order.declare(:t) { sleep }
+      order.pass_to :t, :resume_on => :sleep
+      100.times { order.apocalypse! }
+    end
+
+    it 'does not enqueue events after the apocalypse' do
+      1000.times { order.apocalypse! }
+      expect(order.instance_variable_get(:@queue)).to be_empty
+    end
+
+    it 'kills the worker' do
+      expect(order.instance_variable_get(:@worker).status).to_not eq false
+      order.apocalypse!
+      expect(order.instance_variable_get(:@worker).status).to eq false
+    end
+  end
 end

@@ -72,7 +72,7 @@ class ThreadOrder
   end
 
   def enqueue(&block)
-    sync { @queue << block }
+    sync { @queue << block if @worker.alive? }
   end
 
   def work
