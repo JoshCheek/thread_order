@@ -87,28 +87,44 @@ RSpec.describe ThreadOrder do
 
   describe 'errors in children' do
     specify 'are raised in the child' do
-      child = nil
-      order.declare(:err) { child = Thread.current; raise 'the roof' }
-      order.pass_to :err, :resume_on => :exit rescue nil
-      child.join                              rescue nil
+      order.declare(:err) { sleep }
+      child = order.pass_to :err, :resume_on => :sleep
+      begin
+        order.enqueue { child.raise 'the roof' }
+        loop { :noop }
+      rescue
+      end
       expect(child.status).to eq nil
     end
 
     specify 'are raised in the parent' do
-      order.declare(:err) { |parent|
-        parent.wakeup
-        order.wait_until { parent.status == 'run' }
-        raise Exception, 'to the rules'
-      }
-      expect {
-        order.pass_to :err
+      order.declare(:err) { sleep }
+      child = order.pass_to :err, :resume_on => :sleep
+      begin
+        order.enqueue { child.raise Exception.new 'to the rules' }
         loop { :noop }
-      }.to raise_error Exception, 'to the rules'
+      rescue Exception => e
+        expect { raise e }.to raise_error Exception, 'to the rules'
+      else
+        raise "Did not raise!"
+      end
     end
 
     specify 'even if the parent is asleep' do
-      order.declare(:err) { raise 'the roof' }
-      expect { order.pass_to :err }.to raise_error RuntimeError, 'the roof'
+      order.declare(:err) { sleep }
+      parent = Thread.current
+      child  = order.pass_to :err, :resume_on => :sleep
+      begin
+        order.enqueue {
+          expect(parent.status).to eq 'sleep'
+          child.raise Exception.new 'to the rules'
+        }
+        sleep
+      rescue Exception => e
+        expect { raise e }.to raise_error Exception, 'to the rules'
+      else
+        raise "Did not raise!"
+      end
     end
   end
 

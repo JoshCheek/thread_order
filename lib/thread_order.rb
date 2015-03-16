@@ -5,62 +5,117 @@ class ThreadOrder
   CannotResume = Class.new Error
 
   class ResumeThread
-    def initialize(thread, resume_event)
+    # states
+    Dead    = :dead
+    Ran     = :ran
+    Initial = :initial
+    Errored = :errored
+
+    # events
+    None       = :none
+    Run        = :run
+    Sleep      = :sleep
+    Exit       = :exit
+    Error      = :error
+    Unknown    = :unknown # ie 'aborting' where we don't yet know what's going on
+    ParentDied = :parent_died
+
+    module Any
+      class << self
+        def ==(*) true end
+        alias === ==
+      end
+    end
+
+    def self.call(thread, resume_event, to_watch, enqueue)
+      new(thread, resume_event, to_watch, enqueue).call
+    end
+
+    def initialize(thread, resume_event, to_watch, enqueue)
       self.thread       = thread
       self.resume_event = resume_event
-      self.resumed      = false
+      self.to_watch     = to_watch
+      self.enqueue      = enqueue
+      self.state        = :initial
     end
 
-    def run?
-      :run == resume_event
-    end
-
-    def sleep?
-      :sleep == resume_event
-    end
-
-    def exit?
-      :exit == resume_event
-    end
-
-    def resumed?
-      resumed
-    end
-
-    def watch(to_watch, enqueue)
-      return if resumed?    # no op, job was already done
-      return resume if run? # calling this method implies to_watch is running
-
-      case to_watch.status
-      when 'sleep'
-        sleep? && resume
-      when nil
-        # raise the error from the child in in the parent
-        begin
-          to_watch.value
-        rescue Exception => e
-          thread.raise e
-        end
-      when false
-        if exit?
-          resume
-        elsif sleep?
-          message = "#{to_watch[:thread_order_name]} exited instead of sleeping"
-          thread.raise CannotResume.new(message)
-        end
+    def call
+      condition = [state, resume_event, get_event(to_watch)]
+      case condition
+      when [ Any     , None  , Error      ] then error!(to_watch)
+      when [ Any     , None  , Any        ] then :noop
+      when [ Any     , Any   , Unknown    ] then :noop
+      when [ Any     , Any   , ParentDied ] then self.state = Dead
+      when [ Errored , Any   , Any        ] then :noop
+      when [ Dead    , Any   , Any        ] then :noop
+      when [ Initial , Run   , Any        ] then run!
+      when [ Initial , Sleep , Run        ] then :noop
+      when [ Initial , Sleep , Sleep      ] then run!
+      when [ Initial , Sleep , Exit       ] then never_slept!(to_watch)
+      when [ Initial , Sleep , Error      ] then error!(to_watch)
+      when [ Initial , Exit  , Run        ] then :noop
+      when [ Initial , Exit  , Sleep      ] then :noop
+      when [ Initial , Exit  , Exit       ] then run!
+      when [ Initial , Exit  , Error      ] then error!(to_watch)
+      when [ Ran     , Run   , Run        ] then :noop
+      when [ Ran     , Run   , Sleep      ] then :noop
+      when [ Ran     , Run   , Exit       ] then :noop
+      when [ Ran     , Run   , Error      ] then error!(to_watch)
+      when [ Ran     , Sleep , Run        ] then :noop
+      when [ Ran     , Sleep , Sleep      ] then :noop
+      when [ Ran     , Sleep , Exit       ] then :noop
+      when [ Ran     , Sleep , Error      ] then error!(to_watch)
+      when [ Ran     , Exit  , Run        ] then :noop
+      when [ Ran     , Exit  , Sleep      ] then :noop
+      when [ Ran     , Exit  , Exit       ] then :noop
+      when [ Ran     , Exit  , Error      ] then error!(to_watch)
+      else raise "Shouldn't be possible: #{condition}"
       end
-
-      resumed? || enqueue.call { watch to_watch, enqueue }
+      # continue watching for more events unless we are in a final state: errored or dead
+      errored? || dead? || enqueue.call { call }
     end
 
     private
 
-    attr_accessor :thread, :resume_event, :resumed
+    attr_accessor :thread, :resume_event, :to_watch, :enqueue, :state
 
-    def resume
-      return if resumed?
-      self.resumed = true
+    def errored?
+      state == Errored
+    end
+
+    def dead?
+      state == Dead
+    end
+
+    def state
+      return Dead unless thread.alive?
+      @state
+    end
+
+    def get_event(to_watch)
+      case to_watch.status
+      when 'run'   then Run
+      when 'sleep' then Sleep
+      when nil     then Error
+      when false   then Exit
+      else              Unknown
+      end
+    end
+
+    def run!
+      self.state = Ran
       thread.wakeup
+    end
+
+    def error!(errored_thread)
+      errored_thread.value
+    rescue Exception => error
+      thread.raise error
+    end
+
+    def never_slept!(to_watch)
+      message = "#{to_watch[:thread_order_name]} exited instead of sleeping"
+      thread.raise CannotResume.new(message)
     end
   end
 
@@ -87,10 +142,9 @@ class ThreadOrder
   end
 
   def pass_to(name, options={})
-    child  = nil
-    parent = Thread.current
-    resume = ResumeThread.new parent, extract_resume_event!(options)
-
+    child        = nil
+    parent       = Thread.current
+    resume_event = extract_resume_event!(options)
     enqueue do
       Thread.new do
         child = Thread.current
@@ -100,11 +154,15 @@ class ThreadOrder
           @bodies.fetch(name)
         }
         wait_until { parent.stop? }
-        resume.watch child, method(:enqueue)
+        enqueue do
+          ResumeThread.call parent,
+                            resume_event,
+                            child,
+                            method(:enqueue)
+        end
         body.call parent
       end
     end
-
     sleep
     child
   end
@@ -158,6 +216,6 @@ class ThreadOrder
       raise(ArgumentError, "Unknown options: #{options.inspect}")
     resume_on && ![:run, :exit, :sleep, nil].include?(resume_on) and
       raise(ArgumentError, "Unknown status: #{resume_on.inspect}")
-    resume_on
+    resume_on || :none
   end
 end
