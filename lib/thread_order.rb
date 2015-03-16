@@ -4,121 +4,6 @@ class ThreadOrder
   Error        = Class.new RuntimeError
   CannotResume = Class.new Error
 
-  class ResumeThread
-    # states
-    Dead    = :dead
-    Ran     = :ran
-    Initial = :initial
-    Errored = :errored
-
-    # events
-    None       = :none
-    Run        = :run
-    Sleep      = :sleep
-    Exit       = :exit
-    Error      = :error
-    Unknown    = :unknown # ie 'aborting' where we don't yet know what's going on
-    ParentDied = :parent_died
-
-    module Any
-      class << self
-        def ==(*) true end
-        alias === ==
-      end
-    end
-
-    def self.call(thread, resume_event, to_watch, enqueue)
-      new(thread, resume_event, to_watch, enqueue).call
-    end
-
-    def initialize(thread, resume_event, to_watch, enqueue)
-      self.thread       = thread
-      self.resume_event = resume_event
-      self.to_watch     = to_watch
-      self.enqueue      = enqueue
-      self.state        = :initial
-    end
-
-    def call
-      condition = [state, resume_event, get_event(to_watch)]
-      case condition
-      when [ Any     , None  , Error      ] then error!(to_watch)
-      when [ Any     , None  , Any        ] then :noop
-      when [ Any     , Any   , Unknown    ] then :noop
-      when [ Any     , Any   , ParentDied ] then self.state = Dead
-      when [ Errored , Any   , Any        ] then :noop
-      when [ Dead    , Any   , Any        ] then :noop
-      when [ Initial , Run   , Any        ] then run!
-      when [ Initial , Sleep , Run        ] then :noop
-      when [ Initial , Sleep , Sleep      ] then run!
-      when [ Initial , Sleep , Exit       ] then never_slept!(to_watch)
-      when [ Initial , Sleep , Error      ] then error!(to_watch)
-      when [ Initial , Exit  , Run        ] then :noop
-      when [ Initial , Exit  , Sleep      ] then :noop
-      when [ Initial , Exit  , Exit       ] then run!
-      when [ Initial , Exit  , Error      ] then error!(to_watch)
-      when [ Ran     , Run   , Run        ] then :noop
-      when [ Ran     , Run   , Sleep      ] then :noop
-      when [ Ran     , Run   , Exit       ] then :noop
-      when [ Ran     , Run   , Error      ] then error!(to_watch)
-      when [ Ran     , Sleep , Run        ] then :noop
-      when [ Ran     , Sleep , Sleep      ] then :noop
-      when [ Ran     , Sleep , Exit       ] then :noop
-      when [ Ran     , Sleep , Error      ] then error!(to_watch)
-      when [ Ran     , Exit  , Run        ] then :noop
-      when [ Ran     , Exit  , Sleep      ] then :noop
-      when [ Ran     , Exit  , Exit       ] then :noop
-      when [ Ran     , Exit  , Error      ] then error!(to_watch)
-      else raise "Shouldn't be possible: #{condition}"
-      end
-      # continue watching for more events unless we are in a final state: errored or dead
-      errored? || dead? || enqueue.call { call }
-    end
-
-    private
-
-    attr_accessor :thread, :resume_event, :to_watch, :enqueue, :state
-
-    def errored?
-      state == Errored
-    end
-
-    def dead?
-      state == Dead
-    end
-
-    def state
-      return Dead unless thread.alive?
-      @state
-    end
-
-    def get_event(to_watch)
-      case to_watch.status
-      when 'run'   then Run
-      when 'sleep' then Sleep
-      when nil     then Error
-      when false   then Exit
-      else              Unknown
-      end
-    end
-
-    def run!
-      self.state = Ran
-      thread.wakeup
-    end
-
-    def error!(errored_thread)
-      errored_thread.value
-    rescue Exception => error
-      thread.raise error
-    end
-
-    def never_slept!(to_watch)
-      message = "#{to_watch[:thread_order_name]} exited instead of sleeping"
-      thread.raise CannotResume.new(message)
-    end
-  end
-
   # Note that this must tbe initialized in a threadsafe environment
   # Otherwise, syncing may occur before the mutex is set
   def initialize
@@ -129,7 +14,7 @@ class ThreadOrder
     @worker  = Thread.new do
       Thread.current.abort_on_exception = true
       Thread.current[:thread_order_name] = :internal_worker
-      loop { work } # work until killed
+      loop { break if :shutdown == work() }
     end
   end
 
@@ -146,21 +31,29 @@ class ThreadOrder
     parent       = Thread.current
     resume_event = extract_resume_event!(options)
     enqueue do
-      Thread.new do
-        child = Thread.current
-        Thread.current[:thread_order_name] = name
-        body = sync {
-          @threads << child
-          @bodies.fetch(name)
+      sync do
+        @threads << Thread.new {
+          child = Thread.current
+          child[:thread_order_name] = name
+          body = sync { @bodies.fetch(name) }
+          wait_until { parent.stop? }
+          :run == resume_event && parent.wakeup
+          wake_on_sleep = lambda do
+            child.status == 'sleep' ? parent.wakeup :
+            child.status == nil     ? :noop         :
+            child.status == false   ? parent.raise(CannotResume.new "#{name} exited instead of sleeping") :
+                                      enqueue(&wake_on_sleep)
+          end
+          :sleep == resume_event && enqueue(&wake_on_sleep)
+          begin
+            body.call parent
+          rescue Exception => e
+            enqueue { parent.raise e }
+            raise
+          ensure
+            :exit == resume_event && enqueue { parent.wakeup }
+          end
         }
-        wait_until { parent.stop? }
-        enqueue do
-          ResumeThread.call parent,
-                            resume_event,
-                            child,
-                            method(:enqueue)
-        end
-        body.call parent
       end
     end
     sleep
@@ -175,7 +68,7 @@ class ThreadOrder
     enqueue do
       @threads.each(&thread_method)
       @queue.clear
-      @worker.kill # seppuku!
+      :shutdown
     end
     @worker.join
   end

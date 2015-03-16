@@ -64,14 +64,10 @@ RSpec.describe ThreadOrder do
     end
 
     it 'blows up if it is waiting on another thread to sleep and that thread exits instead' do
-      raised_exception = nil
-      order.declare(:t1) do
-        Thread.current.abort_on_exception = false # don't blow up the main thread
-        order.pass_to :t2, :resume_on => :sleep rescue raised_exception = $!
-      end
-      order.declare(:t2) { :exits_instead_of_sleeping }
-      order.pass_to :t1, :resume_on => :exit
-      expect(raised_exception.message).to include "t2 exited"
+      expect {
+        order.declare(:t1) { :exits_instead_of_sleeping }
+        order.pass_to :t1, :resume_on => :sleep
+      }.to raise_error ThreadOrder::CannotResume, /t1 exited/
     end
   end
 
@@ -90,41 +86,34 @@ RSpec.describe ThreadOrder do
       order.declare(:err) { sleep }
       child = order.pass_to :err, :resume_on => :sleep
       begin
-        order.enqueue { child.raise 'the roof' }
-        loop { :noop }
-      rescue
+        child.raise RuntimeError.new('the roof')
+        sleep
+      rescue RuntimeError => e
+        expect(e.message).to eq 'the roof'
+      else
+        raise 'expected an error'
       end
-      expect(child.status).to eq nil
     end
 
     specify 'are raised in the parent' do
-      order.declare(:err) { sleep }
-      child = order.pass_to :err, :resume_on => :sleep
-      begin
-        order.enqueue { child.raise Exception.new 'to the rules' }
-        loop { :noop }
-      rescue Exception => e
-        expect { raise e }.to raise_error Exception, 'to the rules'
-      else
-        raise "Did not raise!"
-      end
+      expect {
+        order.declare(:err) { raise Exception, "to the rules" }
+        order.pass_to :err, :resume_on => :exit
+        sleep
+      }.to raise_error Exception, 'to the rules'
     end
 
     specify 'even if the parent is asleep' do
       order.declare(:err) { sleep }
       parent = Thread.current
       child  = order.pass_to :err, :resume_on => :sleep
-      begin
+      expect {
         order.enqueue {
           expect(parent.status).to eq 'sleep'
           child.raise Exception.new 'to the rules'
         }
         sleep
-      rescue Exception => e
-        expect { raise e }.to raise_error Exception, 'to the rules'
-      else
-        raise "Did not raise!"
-      end
+      }.to raise_error Exception, 'to the rules'
     end
   end
 
@@ -244,7 +233,7 @@ RSpec.describe ThreadOrder do
       child = order.pass_to :t, :resume_on => :run
       expect(child).to_not receive(:kill)
       joiner = Thread.new { order.apocalypse! :join }
-      :noop until joiner.status == 'sleep'
+      Thread.pass until child.status == 'sleep' # can't use wait_until b/c that occurs within the worker, which is apocalypsizing
       child.wakeup
       joiner.join
     end
