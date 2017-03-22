@@ -1,4 +1,7 @@
 language: ruby
+before_install:
+  # jruby-head does not have bundler.
+  - which bundle || gem install bundler
 script: spec/run
 rvm:
   - 1.8.7
@@ -7,6 +10,8 @@ rvm:
   - 2.0.0
   - 2.1
   - 2.2
+  - 2.3.3
+  - 2.4.0
   - ruby-head
   - ree
   - jruby-18mode
@@ -17,4 +22,6 @@ matrix:
   include:
     - rvm: jruby
       env: JRUBY_OPTS='--2.0'
+  allow_failures:
+    - rvm: rbx
   fast_finish: true
