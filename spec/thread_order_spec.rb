@@ -1,3 +1,5 @@
+initial_loaded_features = $LOADED_FEATURES.dup.freeze
+
 require 'thread_order'
 
 RSpec.describe ThreadOrder do
@@ -142,12 +144,20 @@ RSpec.describe ThreadOrder do
     expect(thread_names).to eq [:a, nil]
   end
 
-  it 'is implemented without depending on the stdlib' do
+  define_method :not_loaded! do |filename|
+    # newer versions of Ruby require thread.rb somewhere, so if it was required
+    # before any of our code was required, then don't bother with the assertion
+    # there's no obvious way to deal with it, and it wasn't us who required it
+    next if initial_loaded_features.include? filename
     loaded_filenames = $LOADED_FEATURES.map { |filepath| File.basename filepath }
+    expect(loaded_filenames).to_not include filename
+  end
+
+  it 'is implemented without depending on the stdlib' do
     begin
-      expect(loaded_filenames).to_not include 'monitor.rb'
-      expect(loaded_filenames).to_not include 'thread.rb'
-      expect(loaded_filenames).to_not include 'thread.bundle'
+      not_loaded! 'monitor.rb'
+      not_loaded! 'thread.rb'
+      not_loaded! 'thread.bundle'
     rescue RSpec::Expectations::ExpectationNotMetError
       pending if defined?(RUBY_ENGINE) && RUBY_ENGINE == 'jruby' # somehow this still gets loaded in some JRubies
       raise
